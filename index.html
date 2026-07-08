@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📄 论文速递 - AI前沿论文日报</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        .app {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #ff2442, #ff6b81);
+            color: white;
+            padding: 40px 30px;
+            border-radius: 20px;
+            text-align: center;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 20px rgba(255,36,66,0.3);
+        }
+        .header h1 { font-size: 32px; margin-bottom: 8px; }
+        .header p { opacity: 0.9; font-size: 15px; }
+        .paper-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .paper-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        }
+        .paper-card h2 {
+            font-size: 19px;
+            color: #222;
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+        .paper-summary {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.8;
+            margin-bottom: 16px;
+        }
+        .tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        .tag {
+            background: #ffe0e6;
+            color: #ff2442;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .paper-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            border-top: 1px solid #f0f0f0;
+        }
+        .paper-meta { color: #999; font-size: 13px; }
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            background: #ff2442;
+            color: white;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .btn:hover { background: #e0203a; }
+        .loading {
+            text-align: center;
+            padding: 80px 20px;
+            font-size: 40px;
+            animation: bounce 1s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="header">
+            <h1>📄 论文速递</h1>
+            <p>AI前沿论文 · 每日自动更新 · DeepSeek智能总结</p>
+        </div>
+        <div id="paper-list">
+            <div class="loading">📄</div>
+        </div>
+    </div>
+
+    <script>
+        async function loadPapers() {
+            const list = document.getElementById('paper-list');
+            
+            // 获取今天的日期
+            const today = new Date();
+            const dateStr = today.getFullYear() + '-' + 
+                           String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                           String(today.getDate()).padStart(2, '0');
+            
+            // 尝试多种日期（可能文件还没生成，用最近的）
+            const dates = [];
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(today);
+                d.setDate(d.getDate() - i);
+                dates.push(d.getFullYear() + '-' + 
+                         String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+                         String(d.getDate()).padStart(2, '0'));
+            }
+            
+            let markdown = null;
+            for (const date of dates) {
+                try {
+                    const url = `https://raw.githubusercontent.com/Herzl1028/paper-digest/main/reports/${date}.md`;
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        markdown = await response.text();
+                        break;
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            if (!markdown) {
+                list.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">还没有论文报告，请先运行Actions生成</p>';
+                return;
+            }
+            
+            // 解析Markdown
+            const papers = [];
+            const sections = markdown.split(/### \d+\./);
+            
+            for (let i = 1; i < sections.length; i++) {
+                const section = sections[i];
+                const titleMatch = section.match(/^(.+)/);
+                const authorMatch = section.match(/作者[：:]\s*(.+)/);
+                const summaryMatch = section.match(/摘要[：:]\s*(.+)/);
+                const linkMatch = section.match(/\[查看原文\]\((.+)\)/);
+                
+                if (titleMatch) {
+                    const title = titleMatch[1].replace(/\*\*/g, '').trim();
+                    const tags = extractTags(title + (summaryMatch ? summaryMatch[1] : ''));
+                    
+                    papers.push({
+                        title: title,
+                        authors: authorMatch ? authorMatch[1].replace(/\*\*/g, '').trim() : 'arXiv',
+                        summary: summaryMatch ? summaryMatch[1].replace(/\*\*/g, '').trim().slice(0, 200) + '...' : '暂无摘要',
+                        url: linkMatch ? linkMatch[1] : '#',
+                        tags: tags
+                    });
+                }
+            }
+            
+            if (papers.length === 0) {
+                list.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">暂未解析到论文</p>';
+                return;
+            }
+            
+            // 渲染卡片
+            list.innerHTML = papers.map(paper => `
+                <div class="paper-card" onclick="window.open('${paper.url}', '_blank')">
+                    <h2>${paper.title}</h2>
+                    <p class="paper-summary">${paper.summary}</p>
+                    ${paper.tags.length > 0 ? `
+                        <div class="tags">
+                            ${paper.tags.map(tag => `<span class="tag">#${tag}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                    <div class="paper-footer">
+                        <span class="paper-meta">👤 ${paper.authors}</span>
+                        <a href="${paper.url}" target="_blank" class="btn" onclick="event.stopPropagation()">📖 阅读原文</a>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function extractTags(text) {
+            const tagMap = {
+                'llm': 'LLM', 'gpt': 'GPT', 'transformer': 'Transformer',
+                'diffusion': '扩散模型', 'reinforcement': '强化学习',
+                'neural network': '神经网络', 'vision': '计算机视觉',
+                'nlp': 'NLP', 'multimodal': '多模态', 'robot': '机器人',
+                'generation': '生成模型', 'language model': '语言模型',
+                'deep learning': '深度学习', 'machine learning': '机器学习'
+            };
+            
+            const tags = new Set();
+            const lowerText = text.toLowerCase();
+            for (const [key, value] of Object.entries(tagMap)) {
+                if (lowerText.includes(key)) {
+                    tags.add(value);
+                }
+            }
+            return Array.from(tags).slice(0, 4);
+        }
+        
+        loadPapers();
+    </script>
+</body>
+</html>
