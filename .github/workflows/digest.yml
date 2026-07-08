@@ -5,11 +5,17 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   generate-digest:
     runs-on: ubuntu-latest
     
     steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+      
       - name: 安装Python
         uses: actions/setup-python@v5
         with:
@@ -18,124 +24,15 @@ jobs:
       - name: 安装依赖
         run: pip install requests openai
       
-      - name: 运行论文抓取
+      - name: 生成论文简报
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: python scripts/digest.py
+      
+      - name: 提交报告到仓库
         run: |
-          cat > digest.py << 'EOF'
-          import requests
-          import xml.etree.ElementTree as ET
-          from datetime import datetime
-          import os
-          from openai import OpenAI
-
-          DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
-
-          KEYWORDS = [
-              "large language model",
-              "artificial intelligence", 
-              "machine learning",
-              "deep learning",
-              "neural network"
-          ]
-
-          def fetch_papers(max_results=10):
-              print("正在搜索论文...")
-              url = "http://export.arxiv.org/api/query"
-              search_query = " OR ".join(f'all:"{kw}"' for kw in KEYWORDS)
-              params = {
-                  "search_query": search_query,
-                  "start": 0,
-                  "max_results": max_results,
-                  "sortBy": "submittedDate",
-                  "sortOrder": "descending"
-              }
-              try:
-                  response = requests.get(url, params=params, timeout=30)
-                  response.raise_for_status()
-                  print("获取成功")
-                  return response.text
-              except Exception as e:
-                  print(f"获取失败: {e}")
-                  return None
-
-          def parse_papers(xml_data):
-              if not xml_data:
-                  return []
-              papers = []
-              root = ET.fromstring(xml_data)
-              ns = {
-                  'atom': 'http://www.w3.org/2005/Atom',
-                  'arxiv': 'http://arxiv.org/schemas/atom'
-              }
-              for entry in root.findall('atom:entry', ns):
-                  try:
-                      title = entry.find('atom:title', ns).text.strip().replace('\n', ' ').replace('  ', ' ')
-                      summary = entry.find('atom:summary', ns).text.strip().replace('\n', ' ').replace('  ', ' ')
-                      authors = []
-                      for author in entry.findall('atom:author', ns):
-                          name = author.find('atom:name', ns).text
-                          authors.append(name)
-                      url = entry.find('atom:id', ns).text
-                      published = entry.find('atom:published', ns).text[:10]
-                      papers.append({
-                          'title': title,
-                          'summary': summary,
-                          'authors': authors,
-                          'url': url,
-                          'published': published
-                      })
-                  except Exception as e:
-                      continue
-              print(f"解析 {len(papers)} 篇论文")
-              return papers
-
-          def generate_summary(papers):
-              if not DEEPSEEK_API_KEY or not papers:
-                  return None
-              print("生成AI摘要...")
-              client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
-              papers_text = ""
-              for i, p in enumerate(papers, 1):
-                  authors_short = ', '.join(p['authors'][:3])
-                  papers_text += f"论文{i}: {p['title']}\n作者: {authors_short}\n摘要: {p['summary'][:300]}\n\n"
-              prompt = f"请根据以下最新论文生成中文简报：1.今日概览 2.重点推荐3篇 3.每篇一句话总结\n\n{papers_text}"
-              try:
-                  response = client.chat.completions.create(
-                      model="deepseek-chat",
-                      messages=[{"role": "user", "content": prompt}],
-                      temperature=0.7,
-                      max_tokens=4000
-                  )
-                  print("摘要生成成功")
-                  return response.choices[0].message.content
-              except Exception as e:
-                  print(f"摘要失败: {e}")
-                  return None
-
-          papers = []
-          xml_data = fetch_papers(10)
-          if xml_data:
-              papers = parse_papers(xml_data)
-          
-          if not papers:
-              print("没有论文")
-          else:
-              summary = generate_summary(papers)
-              print("\n" + "="*50)
-              print(f"📄 今日论文速递 - {datetime.now().strftime('%Y-%m-%d')}")
-              print(f"共 {len(papers)} 篇论文")
-              print("="*50 + "\n")
-              
-              if summary:
-                  print(summary)
-              
-              print("\n" + "-"*50)
-              print("📚 完整论文列表：")
-              for i, p in enumerate(papers, 1):
-                  print(f"\n{i}. {p['title']}")
-                  print(f"   作者: {', '.join(p['authors'][:3])}")
-                  print(f"   链接: {p['url']}")
-              print("\n✅ 完成！")
-          EOF
-          python digest.py
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          git commit -m "📄 更新$(date +%Y-%m-%d)论文简报" || echo "没有新文件"
+          git push
