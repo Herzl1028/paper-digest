@@ -26,12 +26,8 @@ jobs:
       
       - name: 生成论文简报
         env:      
-        - name: 生成论文简报
-        env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-        run: python scripts/digest.py
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: python scripts/digest.py
       
       - name: 提交报告到仓库
