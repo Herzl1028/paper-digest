@@ -1,184 +1,129 @@
-#!/usr/bin/env python3
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import os
 from openai import OpenAI
 
-PUSHPLUS_TOKEN = os.environ.get('PUSHPLUS_TOKEN', '')
+# 从环境变量读取密钥
 DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
-TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
-
-KEYWORDS = [
-    "large language model",
-    "artificial intelligence",
-    "machine learning",
-    "deep learning",
-    "neural network"
-]
-
-def fetch_papers(max_results=10):
-    print("正在从arXiv搜索最新论文...")
-    url = "http://export.arxiv.org/api/query"
-    search_query = " OR ".join(f'all:"{kw}"' for kw in KEYWORDS)
-    params = {
-        "search_query": search_query,
-        "start": 0,
-        "max_results": max_results,
-        "sortBy": "submittedDate",
-        "sortOrder": "descending"
-    }
-    try:
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        print("成功获取论文数据")
-        return response.text
-    except Exception as e:
-        print(f"获取论文失败: {e}")
-        return None
-
-def parse_papers(xml_data):
-    if not xml_data:
-        return []
-    papers = []
-    root = ET.fromstring(xml_data)
-    ns = {
-        'atom': 'http://www.w3.org/2005/Atom',
-        'arxiv': 'http://arxiv.org/schemas/atom'
-    }
-    for entry in root.findall('atom:entry', ns):
-        try:
-            title = entry.find('atom:title', ns).text
-            title = title.strip().replace('\n', ' ').replace('  ', ' ')
-            summary = entry.find('atom:summary', ns).text
-            summary = summary.strip().replace('\n', ' ').replace('  ', ' ')
-            authors = []
-            for author in entry.findall('atom:author', ns):
-                name = author.find('atom:name', ns).text
-                authors.append(name)
-            url = entry.find('atom:id', ns).text
-            published = entry.find('atom:published', ns).text[:10]
-            papers.append({
-                'title': title,
-                'summary': summary,
-                'authors': authors,
-                'url': url,
-                'published': published
-            })
-        except Exception as e:
-            print(f"解析论文时出错: {e}")
-            continue
-    print(f"成功解析 {len(papers)} 篇论文")
-    return papers
-
-def generate_ai_summary(papers):
-    if not DEEPSEEK_API_KEY:
-        print("未配置DeepSeek API密钥")
-        return None
-    if not papers:
-        return None
-    print("正在调用DeepSeek生成智能摘要...")
-    client = OpenAI(
-        api_key=DEEPSEEK_API_KEY,
-        base_url="https://api.deepseek.com"
-    )
-    papers_text = ""
-    for i, paper in enumerate(papers, 1):
-        authors_short = ', '.join(paper['authors'][:3])
-        if len(paper['authors']) > 3:
-            authors_short += '等'
-        papers_text += f"论文{i}: {paper['title']}\n作者: {authors_short}\n摘要: {paper['summary'][:300]}\n\n"
-    prompt = f"请根据以下最新论文生成中文简报：1.今日概览 2.重点推荐3篇 3.每篇一句话总结\n\n{papers_text}"
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=4000
-        )
-        summary = response.choices[0].message.content
-        print("AI摘要生成成功")
-        return summary
-    except Exception as e:
-        print(f"AI摘要生成失败: {e}")
-        return None
-
-def generate_report(papers, ai_summary):
-    today = datetime.now().strftime('%Y年%m月%d日')
-    report = f"# AI论文速递 - {today}\n\n"
-    report += f"共 {len(papers)} 篇论文\n\n"
-    if ai_summary:
-        report += ai_summary
-        report += "\n\n---\n\n"
-    report += "## 完整论文列表\n\n"
-    for i, paper in enumerate(papers, 1):
-        authors_text = ', '.join(paper['authors'][:3])
-        if len(paper['authors']) > 3:
-            authors_text += f' 等{len(paper["authors"])}位作者'
-        report += f"### {i}. {paper['title']}\n\n"
-        report += f"作者: {authors_text}\n\n"
-        report += f"日期: {paper['published']}\n\n"
-        report += f"摘要: {paper['summary'][:200]}...\n\n"
-        report += f"[查看原文]({paper['url']})\n\n"
-        report += "---\n\n"
-    return report
-
-def send_telegram(message):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return False
-    text = message[:4000]
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = {'chat_id': TELEGRAM_CHAT_ID, 'text': text}
-    try:
-        requests.post(url, json=data, timeout=10)
-        print("Telegram推送成功")
-        return True
-    except Exception as e:
-        print(f"Telegram推送失败: {e}")
-        return False
+PUSHPLUS_TOKEN = os.environ.get('PUSHPLUS_TOKEN', '')
 
 def main():
-    print("=" * 40)
+    print("=" * 50)
     print("论文速递系统启动")
-    print("=" * 40)
-    xml_data = fetch_papers(max_results=10)
-    if not xml_data:
+    print("=" * 50)
+    
+    # 1. 抓取论文
+    print("正在搜索论文...")
+    url = "http://export.arxiv.org/api/query"
+    keywords = ["large language model", "artificial intelligence", "machine learning", "deep learning"]
+    query = " OR ".join(f'all:"{k}"' for k in keywords)
+    
+    try:
+        resp = requests.get(url, params={
+            "search_query": query,
+            "max_results": 10,
+            "sortBy": "submittedDate",
+            "sortOrder": "descending"
+        }, timeout=30)
+        resp.raise_for_status()
+        print("获取成功")
+    except Exception as e:
+        print(f"获取失败: {e}")
         return
-    papers = parse_papers(xml_data)
+    
+    # 2. 解析论文
+    papers = []
+    root = ET.fromstring(resp.text)
+    ns = {'atom': 'http://www.w3.org/2005/Atom'}
+    
+    for entry in root.findall('atom:entry', ns):
+        try:
+            title = entry.find('atom:title', ns).text.strip().replace('\n', ' ')
+            summary = entry.find('atom:summary', ns).text.strip().replace('\n', ' ')
+            authors = [a.find('atom:name', ns).text for a in entry.findall('atom:author', ns)]
+            link = entry.find('atom:id', ns).text
+            
+            papers.append({
+                'title': title,
+                'summary': summary[:300],
+                'authors': authors[:3],
+                'url': link
+            })
+        except:
+            continue
+    
+    print(f"解析 {len(papers)} 篇论文")
+    
     if not papers:
-        print("今天没有找到新论文")
+        print("没有论文")
         return
-    ai_summary = generate_ai_summary(papers)
-    report = generate_report(papers, ai_summary)
+    
+    # 3. AI摘要
+    summary_text = ""
+    if DEEPSEEK_API_KEY:
+        print("生成AI摘要...")
+        client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
+        
+        text = "\n\n".join([
+            f"论文{i+1}: {p['title']}\n作者: {', '.join(p['authors'])}\n摘要: {p['summary']}"
+            for i, p in enumerate(papers)
+        ])
+        
+        try:
+            resp = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": f"请总结以下论文，生成中文简报：1.今日概览 2.重点推荐3篇 3.每篇一句话总结\n\n{text}"}],
+                temperature=0.7,
+                max_tokens=4000
+            )
+            summary_text = resp.choices[0].message.content
+            print("AI摘要完成")
+        except Exception as e:
+            print(f"AI摘要失败: {e}")
+    
+    # 4. 生成报告
+    today = datetime.now().strftime('%Y-%m-%d')
+    report = f"# 论文速递 - {datetime.now().strftime('%Y年%m月%d日')}\n\n"
+    report += f"共 {len(papers)} 篇论文\n\n"
+    
+    if summary_text:
+        report += summary_text + "\n\n---\n\n"
+    
+    report += "## 论文列表\n\n"
+    for i, p in enumerate(papers, 1):
+        report += f"### {i}. {p['title']}\n\n"
+        report += f"**作者**: {', '.join(p['authors'])}\n\n"
+        report += f"**摘要**: {p['summary']}...\n\n"
+        report += f"[查看原文]({p['url']})\n\n---\n\n"
+    
+    # 5. 保存
     os.makedirs('reports', exist_ok=True)
-    filename = f"reports/{datetime.now().strftime('%Y-%m-%d')}.md"
+    filename = f"reports/{today}.md"
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(report)
-    print(f"报告已保存: {filename}")
-    if ai_summary:
-        send_telegram(ai_summary[:3500])
-    print("论文速递完成！")
+    print(f"已保存: {filename}")
+    
+    # 6. 推送
+    if PUSHPLUS_TOKEN:
+        push_title = f"📄 AI论文速递 - {datetime.now().strftime('%m月%d日')}"
+        push_content = (summary_text or report[:2000]) + "\n\n[查看详情](https://github.com/Herzl1028/paper-digest)"
+        
+        try:
+            r = requests.post("http://www.pushplus.plus/send", json={
+                "token": PUSHPLUS_TOKEN,
+                "title": push_title,
+                "content": push_content,
+                "template": "markdown"
+            }, timeout=10)
+            if r.status_code == 200:
+                print("PushPlus推送成功")
+            else:
+                print(f"推送失败: {r.text}")
+        except Exception as e:
+            print(f"推送异常: {e}")
+    
+    print("完成！")
 
-def send_pushplus(title, content):
-    """推送到微信（PushPlus）"""
-    if not PUSHPLUS_TOKEN:
-        return False
-    url = "http://www.pushplus.plus/send"
-    data = {
-        "token": PUSHPLUS_TOKEN,
-        "title": title,
-        "content": content,
-        "template": "markdown"
-    }
-    try:
-        response = requests.post(url, json=data, timeout=10)
-        if response.status_code == 200:
-            print("✅ PushPlus推送成功")
-            return True
-        else:
-            print(f"❌ PushPlus推送失败: {response.text}")
-            return False
-    except Exception as e:
-        print(f"❌ PushPlus推送异常: {e}")
-        return False
+if __name__ == "__main__":
+    main()
