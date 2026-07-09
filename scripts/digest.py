@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 from openai import OpenAI
 
+PUSHPLUS_TOKEN = os.environ.get('PUSHPLUS_TOKEN', '')
 DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
@@ -159,5 +160,25 @@ def main():
         send_telegram(ai_summary[:3500])
     print("论文速递完成！")
 
-if __name__ == "__main__":
-    main()
+def send_pushplus(title, content):
+    """推送到微信（PushPlus）"""
+    if not PUSHPLUS_TOKEN:
+        return False
+    url = "http://www.pushplus.plus/send"
+    data = {
+        "token": PUSHPLUS_TOKEN,
+        "title": title,
+        "content": content,
+        "template": "markdown"
+    }
+    try:
+        response = requests.post(url, json=data, timeout=10)
+        if response.status_code == 200:
+            print("✅ PushPlus推送成功")
+            return True
+        else:
+            print(f"❌ PushPlus推送失败: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ PushPlus推送异常: {e}")
+        return False
